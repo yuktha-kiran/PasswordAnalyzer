@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Password Security Analyzer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="bg-grid"></div>
+
+  <header>
+    <div class="brand">
+      <div class="logo">🔐</div>
+      <div>
+        <h1>AI Password Security Analyzer</h1>
+        <p>Intelligent password risk assessment</p>
+      </div>
+    </div>
+    <div class="status"><span></span> SECURITY ONLINE</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="eyebrow">APPLICATION SECURITY • AI / ML</div>
+      <h2>Check how secure your password is.</h2>
+      <p>Enter a password to analyze its security characteristics and receive an instant risk assessment.</p>
+
+      <div class="analyzer-card">
+        <label for="password">ENTER PASSWORD</label>
+        <div class="input-wrap">
+          <input id="password" type="password" placeholder="Enter a password..." autocomplete="off">
+          <button id="toggle" type="button">👁</button>
+        </div>
+
+        <div class="meter"><div id="meter-fill"></div></div>
+
+        <button id="analyze" class="analyze-btn">ANALYZE PASSWORD <span>→</span></button>
+        <p class="privacy">🔒 For this demonstration, the password is analyzed locally by the application and is not stored.</p>
+      </div>
+    </section>
+
+    <section id="results" class="results hidden">
+      <div class="result-head">
+        <div>
+          <div class="eyebrow">ANALYSIS RESULT</div>
+          <h2>Password Security Report</h2>
+        </div>
+        <div id="risk-pill" class="risk-pill">HIGH RISK</div>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span>AI PREDICTION</span>
+          <strong id="level">—</strong>
+        </div>
+        <div class="stat">
+          <span>RISK SCORE</span>
+          <strong><b id="score">0</b>/100</strong>
+        </div>
+        <div class="stat">
+          <span>MODEL CONFIDENCE</span>
+          <strong id="confidence">—</strong>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <h3>Security checks</h3>
+          <div id="checks"></div>
+        </div>
+
+        <div class="panel">
+          <h3>Detected weaknesses</h3>
+          <div id="weaknesses"></div>
+        </div>
+      </div>
+
+      <div class="recommendation panel">
+        <h3>💡 Security recommendations</h3>
+        <ul id="recommendations"></ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>AI-Based Application Security Project</span>
+    <span>CSE535 • Cryptography & Network Security</span>
+  </footer>
+
+<script>
+const password = document.getElementById("password");
+const meter = document.getElementById("meter-fill");
+
+password.addEventListener("input", () => {
+  const n = Math.min(100, password.value.length * 6);
+  meter.style.width = n + "%";
+});
+
+document.getElementById("toggle").onclick = () => {
+  password.type = password.type === "password" ? "text" : "password";
+};
+
+function esc(text) {
+  const d = document.createElement("div");
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+document.getElementById("analyze").onclick = async () => {
+  if (!password.value) {
+    password.focus();
+    return;
+  }
+
+  const button = document.getElementById("analyze");
+  button.disabled = true;
+  button.innerHTML = "ANALYZING <span>...</span>";
+
+  try {
+    const response = await fetch("/analyze", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({password: password.value})
+    });
+    const data = await response.json();
+
+    if (!response.ok) throw new Error(data.error);
+
+    document.getElementById("results").classList.remove("hidden");
+    document.getElementById("level").textContent = data.level;
+    document.getElementById("score").textContent = data.score;
+    document.getElementById("confidence").textContent = data.confidence + "%";
+
+    const pill = document.getElementById("risk-pill");
+    pill.textContent = data.label;
+    pill.className = "risk-pill " + data.color;
+
+    document.getElementById("checks").innerHTML =
+      Object.entries(data.checks).map(([name, ok]) =>
+        `<div class="check ${ok ? "ok" : "bad"}"><span>${ok ? "✓" : "×"}</span>${esc(name)}</div>`
+      ).join("");
+
+    document.getElementById("weaknesses").innerHTML =
+      data.weaknesses.length
+        ? data.weaknesses.map(x => `<div class="weak">⚠ ${esc(x)}</div>`).join("")
+        : `<div class="good-message">✓ No obvious weaknesses detected.</div>`;
+
+    document.getElementById("recommendations").innerHTML =
+      data.recommendations.length
+        ? data.recommendations.map(x => `<li>${esc(x)}</li>`).join("")
+        : `<li>Your password has a good combination of security characteristics.</li>`;
+
+    document.getElementById("results").scrollIntoView({behavior:"smooth"});
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = "ANALYZE PASSWORD <span>→</span>";
+  }
+};
+</script>
+</body>
+</html>
