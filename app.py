@@ -1,125 +1,251 @@
 from flask import Flask, render_template, request, jsonify
-import re
+import joblib
+
+from feature_extractor import extract_features, FEATURE_NAMES
 
 app = Flask(__name__)
 
-COMMON = {
-    "password", "password123", "123456", "12345678", "123456789",
-    "qwerty", "qwerty123", "admin", "admin123", "welcome", "letmein",
-    "abc123", "iloveyou", "monkey", "football"
+# Load trained ML model
+MODEL_PATH = "model/password_model.pkl"
+
+model_data = joblib.load(MODEL_PATH)
+model = model_data["model"]
+feature_names = model_data["features"]
+
+
+COMMON_PASSWORDS = {
+    "123456",
+    "12345678",
+    "password",
+    "password123",
+    "qwerty",
+    "qwerty123",
+    "admin",
+    "admin123",
+    "welcome",
+    "letmein",
+    "abc123",
+    "hello123",
+    "football",
+    "monkey",
+    "iloveyou",
+    "111111",
+    "123123",
+    "000000",
+    "pass123",
+    "test123",
 }
 
+
 def analyze_password(password):
+
+    # Extract features
+    features = extract_features(password)
+    feature_values = dict(zip(FEATURE_NAMES, features))
+
+    # Arrange features exactly as the model expects
+    model_input = [
+        feature_values[name]
+        for name in feature_names
+    ]
+
+    # ML prediction
+    prediction = model.predict([model_input])[0]
+
+    # ML confidence
+    probabilities = model.predict_proba([model_input])[0]
+    classes = model.classes_
+
+    probability_map = dict(zip(classes, probabilities))
+    confidence = probability_map.get(prediction, 0) * 100
+
+    # --------------------------------------------------
+    # Security checks
+    # --------------------------------------------------
+
+    checks = {
+        "Minimum Length": len(password) >= 8,
+        "Uppercase Letter": feature_values["has_uppercase"],
+        "Lowercase Letter": feature_values["has_lowercase"],
+        "Number": feature_values["has_digit"],
+        "Special Character": feature_values["has_special"],
+        "No Common Password": not feature_values["is_common_password"],
+        "No Predictable Sequence": not feature_values["has_sequence"],
+        "No Excessive Repetition": not feature_values["has_repeated_characters"],
+    }
+
+    # --------------------------------------------------
+    # Calculate a user-friendly security score
+    # --------------------------------------------------
+
     score = 0
+
+    # Length
+    if len(password) >= 12:
+        score += 25
+    elif len(password) >= 8:
+        score += 18
+    elif len(password) >= 6:
+        score += 10
+
+    # Character diversity
+    if feature_values["has_uppercase"]:
+        score += 12
+
+    if feature_values["has_lowercase"]:
+        score += 12
+
+    if feature_values["has_digit"]:
+        score += 12
+
+    if feature_values["has_special"]:
+        score += 15
+
+    # Uniqueness
+    if feature_values["unique_characters"] >= 8:
+        score += 12
+
+    # Security penalties
+    if feature_values["is_common_password"]:
+        score -= 30
+
+    if feature_values["has_sequence"]:
+        score -= 10
+
+    if feature_values["has_repeated_characters"]:
+        score -= 5
+
+    score = max(0, min(100, score))
+
+    # --------------------------------------------------
+    # Weaknesses and recommendations
+    # --------------------------------------------------
+
     weaknesses = []
     recommendations = []
 
-    length = len(password)
-    has_upper = bool(re.search(r"[A-Z]", password))
-    has_lower = bool(re.search(r"[a-z]", password))
-    has_digit = bool(re.search(r"\d", password))
-    has_special = bool(re.search(r"[^A-Za-z0-9]", password))
+    if len(password) < 8:
+        weaknesses.append("Password is shorter than 8 characters.")
+        recommendations.append("Use at least 12 characters.")
 
-    if length >= 16:
-        score += 35
-    elif length >= 12:
-        score += 28
-    elif length >= 8:
-        score += 18
-    elif length > 0:
-        score += 8
+    elif len(password) < 12:
+        weaknesses.append("Password length could be improved.")
+        recommendations.append("Consider using 12 or more characters.")
 
-    if has_upper: score += 12
-    if has_lower: score += 12
-    if has_digit: score += 12
-    if has_special: score += 15
+    if not feature_values["has_uppercase"]:
+        weaknesses.append("No uppercase letters detected.")
+        recommendations.append("Add uppercase letters.")
 
-    lower = password.lower()
+    if not feature_values["has_lowercase"]:
+        weaknesses.append("No lowercase letters detected.")
+        recommendations.append("Add lowercase letters.")
 
-    if lower in COMMON:
-        score = min(score, 25)
-        weaknesses.append("This password matches a commonly used password.")
-        recommendations.append("Choose a unique password that is not commonly used.")
+    if not feature_values["has_digit"]:
+        weaknesses.append("No numbers detected.")
+        recommendations.append("Add numbers.")
 
-    if re.search(r"(123|234|345|456|567|678|789|abc|qwerty)", lower):
-        score = max(0, score - 15)
-        weaknesses.append("A predictable sequence or keyboard pattern was detected.")
-        recommendations.append("Avoid predictable sequences such as 123 or abc.")
+    if not feature_values["has_special"]:
+        weaknesses.append("No special characters detected.")
+        recommendations.append(
+            "Add symbols such as !, @, #, or $."
+        )
 
-    if re.search(r"(.)\1\1", password):
-        score = max(0, score - 8)
-        weaknesses.append("Repeated characters reduce unpredictability.")
-        recommendations.append("Avoid repeating the same character several times.")
+    if feature_values["is_common_password"]:
+        weaknesses.append(
+            "Password matches a commonly used password."
+        )
+        recommendations.append(
+            "Avoid common passwords and predictable patterns."
+        )
 
-    if length < 12:
-        weaknesses.append("Password length is below the recommended 12+ characters.")
-        recommendations.append("Use a longer password or passphrase.")
+    if feature_values["has_sequence"]:
+        weaknesses.append(
+            "Sequential or predictable character patterns detected."
+        )
+        recommendations.append(
+            "Avoid patterns such as 123, abc, qwerty, or similar sequences."
+        )
 
-    if not has_upper:
-        weaknesses.append("No uppercase letter detected.")
-        recommendations.append("Add uppercase letters where appropriate.")
+    if feature_values["has_repeated_characters"]:
+        weaknesses.append(
+            "Repeated characters detected."
+        )
+        recommendations.append(
+            "Avoid excessive repetition of the same character."
+        )
 
-    if not has_lower:
-        weaknesses.append("No lowercase letter detected.")
-        recommendations.append("Include lowercase letters.")
+    if not weaknesses:
+        recommendations.append(
+            "Use a unique password and avoid reusing it across accounts."
+        )
 
-    if not has_digit:
-        weaknesses.append("No number detected.")
-        recommendations.append("Include numbers.")
+    # --------------------------------------------------
+    # Risk level
+    # --------------------------------------------------
 
-    if not has_special:
-        weaknesses.append("No special character detected.")
-        recommendations.append("Include a special character such as !, @, or #.")
+    if prediction == "Strong":
+        risk = "Low Risk"
+        risk_class = "low"
 
-    score = min(100, max(0, score))
+    elif prediction == "Medium":
+        risk = "Moderate Risk"
+        risk_class = "medium"
 
-    if score >= 75:
-        level = "Strong"
-        label = "LOW RISK"
-        color = "green"
-    elif score >= 45:
-        level = "Medium"
-        label = "MODERATE RISK"
-        color = "orange"
     else:
-        level = "Weak"
-        label = "HIGH RISK"
-        color = "red"
-
-    # Demonstration confidence value based on how many security signals are present.
-    signals = sum([has_upper, has_lower, has_digit, has_special, length >= 12])
-    confidence = min(99, 70 + signals * 5)
-
-    checks = {
-        "Good length": length >= 12,
-        "Uppercase": has_upper,
-        "Lowercase": has_lower,
-        "Numbers": has_digit,
-        "Special characters": has_special,
-    }
+        risk = "High Risk"
+        risk_class = "high"
 
     return {
         "score": score,
-        "level": level,
-        "label": label,
-        "color": color,
-        "confidence": confidence,
+        "level": prediction,
+        "risk": risk,
+        "risk_class": risk_class,
+        "confidence": round(confidence, 2),
+        "checks": checks,
         "weaknesses": weaknesses,
         "recommendations": recommendations,
-        "checks": checks
+        "features": feature_values,
     }
+
 
 @app.route("/")
 def home():
     return render_template("index.html")
 
+
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    data = request.get_json(silent=True) or {}
-    password = data.get("password", "")
+
+    data = request.get_json()
+
+    if not data or "password" not in data:
+        return jsonify({
+            "error": "Password field is required."
+        }), 400
+
+    password = data["password"]
+
+    if not isinstance(password, str):
+        return jsonify({
+            "error": "Password must be text."
+        }), 400
+
     if not password:
-        return jsonify({"error": "Please enter a password."}), 400
-    return jsonify(analyze_password(password))
+        return jsonify({
+            "error": "Please enter a password."
+        }), 400
+
+    try:
+        result = analyze_password(password)
+        return jsonify(result)
+
+    except Exception as e:
+        print("Analysis error:", e)
+
+        return jsonify({
+            "error": "Unable to analyze the password."
+        }), 500
+
 
 if __name__ == "__main__":
     app.run(debug=True)
