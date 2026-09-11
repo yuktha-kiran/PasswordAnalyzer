@@ -1,0 +1,47 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Test and coverage files
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local development files
+instance/
+*.sqlite3
+
+# Generated model/cache files
+model/
+*.pkl
+*.joblib
+
+# Temporary files
+*.tmp
+*.temp
